@@ -1,0 +1,5 @@
+export STACKNAME=init-test
+aws cloudformation create-stack --template-body file://cfninit.yaml \
+  --stack-name $STACKNAME \
+  --timeout-in-minutes 60 \
+  --capabilities CAPABILITY_IAM

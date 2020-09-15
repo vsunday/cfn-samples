@@ -1,0 +1,94 @@
+Parameters:
+  SecurityGroup:
+    Type: String
+    Description: security group for EC2 instance
+  AMIID:
+    Type: String
+    Description: AMI id for EC2 instance
+
+Resources:
+  Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config: 
+          packages: 
+            yum:
+              httpd: []
+              git: []
+          groups: 
+            test:
+              gid: 1234
+          users: 
+            tester:
+              groups:
+                - test
+              uid: 1234
+              home: /home/tester
+          sources: 
+            /etc/test: https://github.com/vsunday/empty-bucket/zipball/master
+          files: 
+            /home/tester/test.txt:
+              content: this is test
+              group: test
+              owner: tester
+          commands: 
+            test:
+              command:
+                - echo hola $WORLD > command.txt
+              env:
+                WORLD: mundo
+              cwd: "~"
+            test2:
+              command:
+                - git clone https://github.com/vsunday/crunch
+              xwd: /tmp
+          services: 
+            sysvinit:
+              httpd:
+                enabled: true
+                ensureRunning: true
+    CreationPolicy:
+      ResourceSignal:    
+        Count: 1
+    Properties: 
+      IamInstanceProfile:
+        Ref: MyInstanceProfile
+      ImageId:
+        Ref: AMIID
+      InstanceType: t2.micro
+      SecurityGroupIds: 
+        - Ref: SecurityGroup
+      Tags: 
+        - Key: Name
+          Value: init-test
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash -xe
+            yum -y update
+            /opt/aws/bin/cfn-init -v -s ${AWS::StackName} --resource Instance --region ${AWS::Region}
+            /opt/aws/bin/cfn-signal -e $? -s ${AWS::StackName} --resource Instance --region ${AWS::Region}
+
+  MyInstanceProfile: 
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Path: /
+      Roles: 
+        - Ref: InstanceRole
+        
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: /
