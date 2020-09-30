@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: test application
+Parameters:
+  FROM:
+    Type: String
+  TO:
+    Type: String
+Resources:
+  TestRole:
+    Type: 'AWS::IAM::Role'
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'lambda.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'test role'
+      Policies: 
+        - PolicyName: 'test-pipe-policy-temp'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Sid: no1
+                Action: 
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:Scan'
+                # Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/mizuho'
+                Resource: !GetAtt MizuhoDB.Arn
+              - Effect: Allow
+                Sid: no2
+                Action: 
+                  - 'ses:SendEmail'
+                Resource: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:index/*@nissay-it.co.jp'
+      RoleName: test-pipe-role-temp
+      Tags: 
+        - Key: pjt
+          Value: test
+  # PipeTest:
+  #   Type: 'AWS::Serverless::Function'
+  #   Properties:
+  #     Handler: index.handler
+  #     FunctionName: pipe-test
+  #     MemorySize: 128
+  #     Runtime: nodejs10.x
+  #     Timeout: 5
+  #     Role: 'arn:aws:iam::225517017813:role/lambda-mizuho-notification-role'
+  #     Environment:
+  #       Variables:
+  #         FROM: !Ref FROM
+  #         TO: !Ref TO
+  #     Tags:
+  #       pjt: test 
+  #     Events:
+  #       MizuhoEvent:
+  #         Properties:
+  #           Description: >-
+  #             kick lambda every 5th day of month
+  #             and this is a test
+  #           Enabled: true
+  #           Name: mizuho-event
+  #           Schedule: 'cron(0 0 5 * ? *)'
+  #         Type: Schedule
+  MizuhoDB:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: date
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName: mizuho-test
+      Tags:
+        - Key: pjt
+          Value: test

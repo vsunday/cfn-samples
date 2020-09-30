@@ -1,0 +1,20 @@
+version: 0.2
+
+env:
+  variables:
+    GID: 123abc
+    
+artifacts:
+  files:
+    - app/index.html
+  discard-paths: yes
+  secondary-artifacts:
+    artifact1:
+      files:
+        - app/index.html
+      discard-paths: yes
+      name: artifact1
+    artifact2:
+      files:
+        - template/binary.yaml
+      name: artifact2

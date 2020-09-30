@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  EmailAddress:
+    Type: String
+    Description: SNS nortification will be send to email address
+  AllowedIpAddress:
+    Type: String
+    AllowedPattern: \d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/\d{1,2}
+    Description: Ip address that is allowed to connect S3 bucket
+
+Resources:
+  BinLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: test function for binary data upload
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Method: post
+            Path: /
+            RestApiId:
+              Ref: BinApi
+      FunctionName: binary-upload
+      Handler: index.handler
+      InlineCode:
+        Fn::Sub: |
+          import boto3, base64
+          object = boto3.resource('s3').Object('${BinBucket}','test')
+          
+          def handler(event, context):
+            object.put(Body=base64.b64decode(event['body']))
+            return {'result': event['body'][:10]}
+      MemorySize: 128
+      Policies:
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource:
+                Fn::Sub: ${BinBucket.Arn}/*
+      Runtime: python3.7
+      Timeout: 5
+    
+  BinBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration:
+        IndexDocument: index.html
+  
+  BinBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: BinBucket
+      PolicyDocument:
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Principal: '*'
+            Resource:
+              Fn::Sub: ${BinBucket.Arn}/*
+            Condition:
+              IpAddress:
+                aws:SourceIp:
+                  - Ref: AllowedIpAddress
+    
+  BinApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      BinaryMediaTypes:
+        - image~1jpeg
+        - application~1octet-stream
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+        AllowOrigin: "'*'"
+      DefinitionBody:
+        openapi: 3.0.0
+        info:
+          version: 0.1.0
+          title: binary upload
+        paths:
+          /:
+            post:
+              summary: Post image
+              operationId: postImage
+              responses:
+                '200':
+                  description: success
+              x-amazon-apigateway-binary-media-types:
+                - image/jpeg
+                - application/octet-stream
+              x-amazon-apigateway-integration:
+                contentHandling: CONVERT_TO_TEXT
+                httpMethod: post
+                requestTemplates:
+                  image/jpeg: |
+                    {
+                      "body": "$input.body"
+                    }
+                responses:
+                  default:
+                    statusCode: '200'
+                type: aws
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BinLambda.Arn}/invocations
+      EndpointConfiguration: REGIONAL
+      OpenApiVersion: 3.0.0
+      StageName: Prod
+      
+  BinSnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint:
+            Ref: EmailAddress
+          Protocol: email
+      Tags:
+        - Key: pjt
+          Value: test
+Outputs:
+  BinBucketName:
+    Description: Name of BinBucket
+    Value:
+      Ref: BinBucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-BinBucketName
+    
