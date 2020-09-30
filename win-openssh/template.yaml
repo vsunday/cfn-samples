@@ -1,74 +1,119 @@
 Parameters:
-  SecurityGroup:
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base
+  PubKey:
     Type: String
-    Description: security group for EC2 instance
-  AMIID:
+    Description: Public key to be added as authorized key.
+  SSHLocation:
     Type: String
-    Description: AMI id for EC2 instance
+    Description: IP address to allow ssh.
+  SSHPort:
+    Type: String
+    Description: TCP port for sshd
 
 Resources:
+  # Vpc:
+  # Subnet:
+  # igw
+  # routing table
+  # network acl
   Instance:
     Type: AWS::EC2::Instance
     Metadata:
       AWS::CloudFormation::Init:
-        config: 
-          packages: 
-            yum:
-              httpd: []
-              git: []
-          groups: 
-            test:
-              gid: 1234
-          users: 
-            tester:
-              groups:
-                - test
-              uid: 1234
-              home: /home/tester
-          sources: 
-            /etc/test: https://github.com/vsunday/empty-bucket/zipball/master
+        configSets:
+          default:
+            - config1
+            - config2
+        config1: 
           files: 
-            /home/tester/test.txt:
-              content: this is test
-              group: test
-              owner: tester
+            C:\cfn\cfn-hup.conf:
+              content:
+                Fn::Sub: |
+                  [main]
+                  stack=${AWS::StackId}
+                  region=${AWS::Region}
+            C:\cfn\hooks.d\cfn-auto-reloader.conf:
+              content:
+                Fn::Sub: |
+                  [cfn-auto-reloader-hook]
+                  triggers=post.update
+                  path=Resources.SharePointFoundation.Metadata.AWS::CloudFormation::Init
+                  action=cfn-init.exe -v -s ${AWS::StackName} -r Instance --region ${AWS::Region}
           commands: 
-            test:
+            01_install_openssh_client:
+              command: >-
+                powershell -Command Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+            02_install_openssh_server:
+              command: >-
+                powershell -Command Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+            03_firewall:
               command:
-                - echo hola $WORLD > command.txt
-              env:
-                WORLD: mundo
-              cwd: "~"
-            test2:
-              command:
-                - git clone https://github.com/vsunday/crunch
-              xwd: /tmp
+                Fn::Sub: >-
+                  powershell -Command New-NetFirewallRule -Name sshd -DisplayName 'My SSH setting' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort ${SSHPort}
+              ignoreErrors: true
+        config2:
+          files:
+            C:\Users\Administrator\.ssh\authorized_keys:
+              content:
+                Ref: PubKey
+            C:\ProgramData\ssh\sshd_config:
+              content: 
+                Fn::Sub: |
+                  Port ${SSHPort}
+                  ListenAddress 0.0.0.0
+                  
+                  PubkeyAuthentication yes
+                  AuthorizedKeysFile	.ssh/authorized_keys
+                  
+                  PasswordAuthentication no
+                  PermitEmptyPasswords no
+                  
+                  # override default of no subsystems
+                  Subsystem	sftp	sftp-server.exe
           services: 
-            sysvinit:
-              httpd:
+            windows:
+              sshd:
                 enabled: true
                 ensureRunning: true
-    CreationPolicy:
-      ResourceSignal:    
-        Count: 1
+                files:
+                  - C:\ProgramData\ssh\sshd_config
     Properties: 
       IamInstanceProfile:
         Ref: MyInstanceProfile
       ImageId:
-        Ref: AMIID
-      InstanceType: t2.micro
+        Ref: LatestAmiId
+      InstanceType: t3.micro
+      KeyName:
+        Ref: KeyPair
       SecurityGroupIds: 
         - Ref: SecurityGroup
       Tags: 
         - Key: Name
-          Value: init-test
+          Value: win-instance
       UserData:
         Fn::Base64:
           Fn::Sub: |
-            #!/bin/bash -xe
-            yum -y update
-            /opt/aws/bin/cfn-init -v -s ${AWS::StackName} --resource Instance --region ${AWS::Region}
-            /opt/aws/bin/cfn-signal -e $? -s ${AWS::StackName} --resource Instance --region ${AWS::Region}
+            <script>
+            cfn-init.exe -v -s ${AWS::StackName} --resource Instance --region ${AWS::Region}
+            </script>
+            
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: win-sg
+      GroupName: win-sg
+      SecurityGroupIngress:
+        - CidrIp:
+            Ref: SSHLocation
+          FromPort:
+            Ref: SSHPort
+          IpProtocol: tcp
+          ToPort:
+            Ref: SSHPort
 
   MyInstanceProfile: 
     Type: AWS::IAM::InstanceProfile
@@ -85,10 +130,9 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Service:
-              - ec2.amazonaws.com
-            Action:
-              - sts:AssumeRole
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
       Path: /
