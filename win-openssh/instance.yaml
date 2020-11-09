@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base
+  PubKey:
+    Type: String
+    Description: Public key to be added as authorized key
+  SSHPort:
+    Type: String
+    Description: TCP port for sshd
+  Subnet:
+    Type: String
+  SecurityGroup:
+    Type: String
+
+Resources:
+  Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - config1
+            - config2
+        config1: 
+          files: 
+            C:\cfn\cfn-hup.conf:
+              content:
+                Fn::Sub: |
+                  [main]
+                  stack=${AWS::StackId}
+                  region=${AWS::Region}
+            C:\cfn\hooks.d\cfn-auto-reloader.conf:
+              content:
+                Fn::Sub: |
+                  [cfn-auto-reloader-hook]
+                  triggers=post.update
+                  path=Resources.SharePointFoundation.Metadata.AWS::CloudFormation::Init
+                  action=cfn-init.exe -v -s ${AWS::StackName} -r Instance --region ${AWS::Region}
+          commands: 
+            01_install_openssh_client:
+              command: >-
+                powershell -Command Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+            02_install_openssh_server:
+              command: >-
+                powershell -Command Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+            03_firewall:
+              command:
+                Fn::Sub: >-
+                  powershell -Command New-NetFirewallRule -Name sshd -DisplayName 'My SSH setting' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort ${SSHPort}
+              ignoreErrors: true
+        config2:
+          files:
+            C:\Users\Administrator\.ssh\authorized_keys:
+              content:
+                Ref: PubKey
+            C:\ProgramData\ssh\sshd_config:
+              content: 
+                Fn::Sub: |
+                  Port ${SSHPort}
+                  ListenAddress 0.0.0.0
+                  
+                  PubkeyAuthentication yes
+                  AuthorizedKeysFile	.ssh/authorized_keys
+                  
+                  PasswordAuthentication no
+                  PermitEmptyPasswords no
+                  
+                  # override default of no subsystems
+                  Subsystem	sftp	sftp-server.exe
+          services: 
+            windows:
+              sshd:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - C:\ProgramData\ssh\sshd_config
+    Properties: 
+      IamInstanceProfile:
+        Ref: InstanceProfile
+      ImageId:
+        Ref: LatestAmiId
+      InstanceType: t3.micro
+      KeyName:
+        Ref: KeyPair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet: 
+            - Ref: SecurityGroup
+          SubnetId:
+            Ref: Subnet
+      Tags: 
+        - Key: Name
+          Value: win-instance
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            <script>
+            cfn-init.exe -v -s ${AWS::StackName} --resource Instance --region ${AWS::Region}
+            </script>
+
+  InstanceProfile: 
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Path: /
+      Roles: 
+        - Ref: InstanceRole
+        
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      Path: /
