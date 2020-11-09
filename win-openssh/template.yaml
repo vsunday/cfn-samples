@@ -1,3 +1,4 @@
+AWSTemplateFormatVersion: 2010-09-09
 Parameters:
   KeyPair:
     Type: AWS::EC2::KeyPair::KeyName
@@ -6,20 +7,206 @@ Parameters:
     Default: /aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base
   PubKey:
     Type: String
-    Description: Public key to be added as authorized key.
+    Description: Public key to be added as authorized key
   SSHLocation:
     Type: String
-    Description: IP address to allow ssh.
+    Description: IP address to allow ssh
   SSHPort:
     Type: String
     Description: TCP port for sshd
 
 Resources:
-  # Vpc:
-  # Subnet:
-  # igw
-  # routing table
-  # network acl
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: 192.168.0.0/24
+      Tags: 
+        - Key: Name
+          Value: win-vpc
+          
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      CidrBlock: 192.168.0.0/28
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: Name
+          Value: win-subnet
+      VpcId:
+        Ref: Vpc
+        
+  Igw:
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: win-igw
+          
+  VpcAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId:
+        Ref: Igw
+      VpcId:
+        Ref: Vpc
+  
+  RoutingTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: win-rt
+      VpcId:
+        Ref: Vpc
+        
+  Route:
+    Type: AWS::EC2::Route
+    Properties: 
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: Igw
+      RouteTableId:
+        Ref: RoutingTable
+        
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId:
+        Ref: RoutingTable
+      SubnetId:
+        Ref: Subnet
+  
+  NetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: win-nacl
+      VpcId:
+        Ref: Vpc
+        
+  InboundRule01:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId:
+        Ref: NetworkAcl
+      PortRange: 
+        From:
+          Ref: SSHPort
+        To:
+          Ref: SSHPort
+      Protocol: 6
+      RuleAction: allow
+      RuleNumber: 100
+        
+  InboundRule02:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId:
+        Ref: NetworkAcl
+      PortRange: 
+        From: 32768
+        To: 65535
+      Protocol: 6
+      RuleAction: allow
+      RuleNumber: 110
+        
+  InboundRule03:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 180.233.109.229/32
+      Egress: false
+      NetworkAclId:
+        Ref: NetworkAcl
+      PortRange: 
+        From: 50000
+        To: 50100
+      Protocol: 17
+      RuleAction: allow
+      RuleNumber: 120
+        
+  OutboundRule01:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId:
+        Ref: NetworkAcl
+      PortRange: 
+        From: 80
+        To: 80
+      Protocol: 6
+      RuleAction: allow
+      RuleNumber: 100
+        
+  OutboundRule02:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId:
+        Ref: NetworkAcl
+      PortRange: 
+        From: 443
+        To: 443
+      Protocol: 6
+      RuleAction: allow
+      RuleNumber: 110
+        
+  OutboundRule03:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId:
+        Ref: NetworkAcl
+      PortRange: 
+        From: 32768
+        To: 65535
+      Protocol: 6
+      RuleAction: allow
+      RuleNumber: 120
+        
+  OutboundRule04:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 180.233.109.229/32
+      Egress: true
+      NetworkAclId:
+        Ref: NetworkAcl
+      PortRange: 
+        From: 4172
+        To: 4172
+      Protocol: 6
+      RuleAction: allow
+      RuleNumber: 130
+        
+  OutboundRule05:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 180.233.109.229/32
+      Egress: true
+      NetworkAclId:
+        Ref: NetworkAcl
+      PortRange: 
+        From: 4172
+        To: 4172
+      Protocol: 17
+      RuleAction: allow
+      RuleNumber: 140
+      
+  SubnetNetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties: 
+      NetworkAclId:
+        Ref: NetworkAcl
+      SubnetId:
+        Ref: Subnet
+        
   Instance:
     Type: AWS::EC2::Instance
     Metadata:
@@ -89,8 +276,13 @@ Resources:
       InstanceType: t3.micro
       KeyName:
         Ref: KeyPair
-      SecurityGroupIds: 
-        - Ref: SecurityGroup
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet: 
+            - Ref: SecurityGroup
+          SubnetId:
+            Ref: Subnet
       Tags: 
         - Key: Name
           Value: win-instance
@@ -114,6 +306,8 @@ Resources:
           IpProtocol: tcp
           ToPort:
             Ref: SSHPort
+      VpcId:
+        Ref: Vpc
 
   MyInstanceProfile: 
     Type: AWS::IAM::InstanceProfile
