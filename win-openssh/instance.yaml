@@ -79,6 +79,7 @@ Resources:
                 files:
                   - C:\ProgramData\ssh\sshd_config
     Properties: 
+      CreditSpecification: unlimited
       IamInstanceProfile:
         Ref: InstanceProfile
       ImageId:
