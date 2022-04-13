@@ -80,7 +80,7 @@ Resources:
                   - C:\ProgramData\ssh\sshd_config
     Properties: 
       CreditSpecification:
-        CPUCredits: unlimited
+        CPUCredits: standard
       IamInstanceProfile:
         Ref: InstanceProfile
       ImageId:
